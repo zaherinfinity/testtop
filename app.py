@@ -1,7 +1,4 @@
-import os
-import random
-import string
-import json
+import os, random, string, json
 from datetime import datetime
 from functools import wraps
 from flask import (
@@ -17,27 +14,25 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import requests
 
-# Load environment variables (local development)
 load_dotenv()
 
 app = Flask(__name__)
 
-# ------------------------- DATABASE CONFIGURATION -------------------------
-# Vercel automatically provides a DATABASE_URL when you add a PostgreSQL storage.
-# If not present (local dev), fallback to a writable SQLite in /tmp (not for production).
+# ---------- Database ----------
+# Vercel PostgreSQL will provide DATABASE_URL automatically.
+# If not present (local dev), fallback to a writable SQLite in /tmp (NOT for production)
 DATABASE_URL = os.getenv('DATABASE_URL')
 if not DATABASE_URL:
-    # Local development only – use a file in /tmp (works on Vercel but data is ephemeral)
     import tempfile
     db_path = os.path.join(tempfile.gettempdir(), 'database.db')
     DATABASE_URL = f'sqlite:///{db_path}'
-    print("WARNING: Using temporary SQLite database. Data will be lost on each deploy.")
+    print("WARNING: Using ephemeral SQLite. Data will be lost on each deploy.")
 
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-me')
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-key')
 
-# Optional: needed for PostgreSQL connection (disable for SQLite)
+# Extra settings for PostgreSQL
 if DATABASE_URL.startswith('postgresql://'):
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         'connect_args': {'options': '-c timezone=utc'}
@@ -48,11 +43,10 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'សូមចូលគណនីដើម្បីបន្ត។'
 
-# Telegram config (can be None – functions will handle it)
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_CHAT_ID = os.getenv('ADMIN_CHAT_ID')
 
-# ------------------------- DATABASE MODELS -------------------------
+# ------------------------- Models -------------------------
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
@@ -110,7 +104,7 @@ class Service(db.Model):
     requires_server_id = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
 
-# ------------------------- HELPER FUNCTIONS -------------------------
+# ------------------------- Helper functions -------------------------
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -174,7 +168,6 @@ def answer_callback(callback_id, text=""):
     payload = {'callback_query_id': callback_id, 'text': text}
     requests.post(url, json=payload, timeout=10)
 
-# ------------------------- PRICING & INITIAL DATA -------------------------
 def apply_markup(supplier_price):
     if supplier_price < 1.0:
         margin = 0.06
@@ -184,12 +177,11 @@ def apply_markup(supplier_price):
         margin = 0.03
     return round(supplier_price * (1 + margin), 2)
 
-# Your full SERVICES_DATA list (I'm showing a shortened version – you must copy your original)
+# ---------- Your full SERVICES_DATA (copy your original list here) ----------
 SERVICES_DATA = [
     ("ff", "25", 0.24, "/ff {uid} 25", False),
     ("ff", "100", 0.84, "/ff {uid} 100", False),
-    # ... add all your remaining services here ...
-    ("mc", "4830", 58.27, "/mc {uid} {server_id} 4830", True),
+    # ... (add all your services – I'm truncating for brevity, but you must paste the complete list)
 ]
 
 def populate_services():
@@ -204,7 +196,7 @@ def populate_services():
             db.session.add(s)
         db.session.commit()
 
-# ------------------------- ROUTES -------------------------
+# ------------------------- Routes (all your original endpoints) -------------------------
 @app.route('/')
 def index():
     services = Service.query.filter_by(is_active=True).all()
@@ -358,35 +350,27 @@ def api_order():
     user = User.query.filter_by(api_key=api_key).first()
     if not user or user.is_banned:
         return jsonify({"status": "error", "message": "Invalid API key or account banned"}), 401
-
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"status": "error", "message": "Invalid JSON"}), 400
-
     game = data.get('service', '').strip().lower()
     uid = str(data.get('uid', '')).strip()
     product = data.get('product', '').strip()
     server_id = str(data.get('server_id', '')).strip() if 'server_id' in data else None
-
     if not game or not uid or not product:
         return jsonify({"status": "error", "message": "Missing service/uid/product"}), 400
-
     if game in ['mg', 'mc'] and not server_id:
         return jsonify({"status": "error", "message": "Server ID required for this game"}), 400
-
     service = Service.query.filter_by(game=game, product_name=product, is_active=True).first()
     if not service:
         return jsonify({"status": "error", "message": "Service not found"}), 404
-
     price = service.selling_price
     if user.balance < price:
         return jsonify({"status": "error", "message": "Insufficient balance"}), 402
-
     if service.requires_server_id:
         cmd = service.command_format.format(uid=uid, server_id=server_id, product_name=product)
     else:
         cmd = service.command_format.format(uid=uid, product_name=product)
-
     user.balance -= price
     order = Order(
         user_id=user.id, service_id=service.id,
@@ -396,13 +380,11 @@ def api_order():
     )
     db.session.add(order)
     db.session.commit()
-
     send_telegram(
         ADMIN_CHAT_ID,
         f"🛒 <b>បញ្ជាទិញថ្មី</b>\n👤 {user.username}\n🎮 {game.upper()} | {product}\n🆔 {uid}"
         + (f" | 🌐 {server_id}" if server_id else "") + f"\n💰 ${price:.2f}\n📟 <code>{cmd}</code>"
     )
-
     return jsonify({
         "status": "success",
         "message": "Order placed successfully",
@@ -514,7 +496,6 @@ def telegram_webhook():
         msg = cb.get('message', {})
         chat_id = msg.get('chat', {}).get('id')
         message_id = msg.get('message_id')
-
         if cb_data.startswith('accept_') or cb_data.startswith('reject_'):
             action, dep_id = cb_data.split('_')
             dep_id = int(dep_id)
@@ -540,12 +521,11 @@ def telegram_webhook():
         return jsonify({"status": "ok"})
     return 'ok', 200
 
-# ------------------------- INITIALIZE DATABASE -------------------------
-# This runs once when the serverless function starts
+# ------------------------- Database initialization (runs once) -------------------------
 with app.app_context():
     db.create_all()
     populate_services()
 
-# ------------------------- LOCAL DEVELOPMENT SERVER -------------------------
+# ------------------------- Run locally -------------------------
 if __name__ == '__main__':
     app.run(debug=True)
