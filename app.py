@@ -23,7 +23,7 @@ load_dotenv()
 app = Flask(__name__)
 
 # ------------------------- DATABASE FIX FOR VERCEL -------------------------
-# Force SQLite to use the writable /tmp directory
+# SQLite must be in /tmp (the only writable directory on Vercel)
 db_path = os.path.join(tempfile.gettempdir(), 'database.db')
 database_url = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
@@ -35,11 +35,10 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'សូមចូលគណនីដើម្បីបន្ត។'
 
-# Telegram config (may be None – code handles it)
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_CHAT_ID = os.getenv('ADMIN_CHAT_ID')
 
-# ------------------------- DATABASE MODELS -------------------------
+# ------------------------- MODELS -------------------------
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
@@ -97,12 +96,11 @@ class Service(db.Model):
     requires_server_id = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
 
-# ------------------------- LOGIN MANAGER -------------------------
+# ------------------------- HELPERS -------------------------
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# ------------------------- CSRF PROTECTION -------------------------
 def generate_csrf_token():
     if '_csrf_token' not in session:
         session['_csrf_token'] = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
@@ -129,7 +127,6 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# ------------------------- TELEGRAM HELPERS -------------------------
 def send_telegram(chat_id, text, reply_markup=None):
     if not BOT_TOKEN:
         return None
@@ -163,7 +160,6 @@ def answer_callback(callback_id, text=""):
     payload = {'callback_query_id': callback_id, 'text': text}
     requests.post(url, json=payload, timeout=10)
 
-# ------------------------- PRICING & INITIAL DATA -------------------------
 def apply_markup(supplier_price):
     if supplier_price < 1.0:
         margin = 0.06
@@ -173,11 +169,8 @@ def apply_markup(supplier_price):
         margin = 0.03
     return round(supplier_price * (1 + margin), 2)
 
-# -------------------------------------------------------------------
-# Complete SERVICES_DATA (all your original entries)
-# -------------------------------------------------------------------
+# ------------------------- FULL SERVICES DATA -------------------------
 SERVICES_DATA = [
-    # FREE FIRE
     ("ff", "25", 0.24, "/ff {uid} 25", False),
     ("ff", "100", 0.84, "/ff {uid} 100", False),
     ("ff", "310", 2.59, "/ff {uid} 310", False),
@@ -210,7 +203,6 @@ SERVICES_DATA = [
     ("ff", "Level20", 0.68, "/ff {uid} Level20", False),
     ("ff", "Level25", 0.68, "/ff {uid} Level25", False),
     ("ff", "Level30", 0.68, "/ff {uid} Level30", False),
-    # MOBILE LEGENDS
     ("mg", "55", 0.84, "/mg {uid} {server_id} 55", True),
     ("mg", "86", 1.25, "/mg {uid} {server_id} 86", True),
     ("mg", "112", 1.76, "/mg {uid} {server_id} 112", True),
@@ -261,14 +253,12 @@ SERVICES_DATA = [
     ("mg", "ValuePass", 0.86, "/mg {uid} {server_id} ValuePass", True),
     ("mg", "WEB", 0.95, "/mg {uid} {server_id} WEB", True),
     ("mg", "MEB", 4.10, "/mg {uid} {server_id} MEB", True),
-    # PUBG MOBILE
     ("pg", "60", 0.99, "/pg {uid} 60", False),
     ("pg", "325", 4.50, "/pg {uid} 325", False),
     ("pg", "660", 9.25, "/pg {uid} 660", False),
     ("pg", "1800", 22.29, "/pg {uid} 1800", False),
     ("pg", "3850", 44.49, "/pg {uid} 3850", False),
     ("pg", "8100", 88.29, "/pg {uid} 8100", False),
-    # HONOR OF KINGS
     ("hok", "16", 0.22, "/hok {uid} 16", False),
     ("hok", "80", 0.95, "/hok {uid} 80", False),
     ("hok", "240", 2.68, "/hok {uid} 240", False),
@@ -279,7 +269,6 @@ SERVICES_DATA = [
     ("hok", "2508", 25.99, "/hok {uid} 2508", False),
     ("hok", "4180", 43.25, "/hok {uid} 4180", False),
     ("hok", "8360", 86.50, "/hok {uid} 8360", False),
-    # MAGIC CHESS
     ("mc", "Weekly", 1.90, "/mc {uid} {server_id} Weekly", True),
     ("mc", "5", 0.15, "/mc {uid} {server_id} 5", True),
     ("mc", "12", 0.30, "/mc {uid} {server_id} 12", True),
@@ -635,11 +624,11 @@ def telegram_webhook():
         return jsonify({"status": "ok"})
     return 'ok', 200
 
-# ------------------------- INITIALIZE DATABASE (runs once on cold start) -------------------------
+# ------------------------- DATABASE INITIALIZATION -------------------------
 with app.app_context():
     db.create_all()
     populate_services()
 
-# ------------------------- RUN LOCAL SERVER (ignored by Vercel) -------------------------
+# ------------------------- RUN (ignored by Vercel) -------------------------
 if __name__ == '__main__':
     app.run(debug=True)
