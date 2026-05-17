@@ -9,7 +9,7 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "topup_panel/app.py"
+      "dest": "topup_panel/templates/index.html"
     }
   ]
 }
