@@ -4,12 +4,20 @@
     {
       "src": "topup_panel/app.py",
       "use": "@vercel/python"
+    },
+    {
+      "src": "topup_panel/static/**/*",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
     {
-      "src": "/(.*)",
-      "dest": "topup_panel/templates/index.html"
+      "src": "topup_panel/static/(.*)",
+      "dest": "/static/$1"
+    },
+    {
+      "src": "topup_panel/(.*)",
+      "dest": "/app.py"
     }
   ]
 }
